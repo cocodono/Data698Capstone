@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
+import random
 
 # List to track request timestamps for rate limiting
 request_times = []
@@ -154,11 +155,9 @@ def fetch_game_logs_by_year_range(df_players, year):
         print(f"No game logs found for {year}.")
         return None
 
-df_2024 = fetch_game_logs_by_year_range(df_players, 2024)
-df_2024.to_csv("wnba_game_logs_2024.csv", index=False) if df_2024 is not None else None
-
-df_2023 = fetch_game_logs_by_year_range(df_players, 2023)
-df_2023.to_csv("wnba_game_logs_2023.csv", index=False) if df_2023 is not None else None
-
-df_2022 = fetch_game_logs_by_year_range(df_players, 2022)
-df_2022.to_csv("wnba_game_logs_2022.csv", index=False) if df_2022 is not None else None
+for year in range(2024, 1996, -1):  # Looping from 2024 down to 1997
+    df = fetch_game_logs_by_year_range(df_players, year)
+    if df is not None:
+        df.to_csv(f"wnba_game_logs_{year}.csv", index=False)
+    
+    time.sleep(random.randint(60, 68))
