@@ -124,23 +124,41 @@ def fetch_game_logs(player_name, player_link, player_id, year):
 # Initialize list to store all game logs
 all_game_logs = []
 
-# Loop through the players in df_players
-for _, row in df_players.iterrows():
-    player_name = row["Player"]
-    player_link = row["Player Link"]
-    year = row["Season"]
+def fetch_game_logs_by_year_range(df_players, year):
+    
+    all_game_logs = []
 
-    # Fetch the game logs
-    game_log_df = fetch_game_logs(player_name, player_link, year)
-    if game_log_df is not None:
-        all_game_logs.append(game_log_df)
+    # Filter players within the specified year range
+    df_filtered = df_players[df_players["Season"] == year]
 
-    # Sleep for 4 seconds after each request
-    time.sleep(4)
+    # Loop through the filtered players
+    for _, row in df_filtered.iterrows():
+        player_name = row["Player"]
+        player_link = row["Player Link"]
+        player_id = row["Player ID"]  # Fix: Include player_id
+        year = row["Season"]
 
-# Combine all individual dataframes into a single dataframe
-df_game_logs = pd.concat(all_game_logs, ignore_index=True)
+        # Fetch the game logs
+        game_log_df = fetch_game_logs(player_name, player_link, player_id, year)  # Fix: Add player_id
+        if game_log_df is not None:
+            all_game_logs.append(game_log_df)
 
-# Save or display the final dataframe
-df_game_logs.to_csv("wnba_game_logs.csv", index=False)
-print("Game logs collected and saved.")
+        # Sleep for 4 seconds after each request to avoid hitting the rate limit
+        time.sleep(4)
+
+    # Combine all collected game logs into a single DataFrame
+    if all_game_logs:
+        df_game_logs = pd.concat(all_game_logs, ignore_index=True)
+        return df_game_logs
+    else:
+        print(f"No game logs found for {year}.")
+        return None
+
+df_2024 = fetch_game_logs_by_year_range(df_players, 2024)
+df_2024.to_csv("wnba_game_logs_2024.csv", index=False) if df_2024 is not None else None
+
+df_2023 = fetch_game_logs_by_year_range(df_players, 2023)
+df_2023.to_csv("wnba_game_logs_2023.csv", index=False) if df_2023 is not None else None
+
+df_2022 = fetch_game_logs_by_year_range(df_players, 2022)
+df_2022.to_csv("wnba_game_logs_2022.csv", index=False) if df_2022 is not None else None
