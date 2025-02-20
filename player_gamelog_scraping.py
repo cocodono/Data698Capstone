@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import time
 import random
+import glob
 
 # List to track request timestamps for rate limiting
 request_times = []
