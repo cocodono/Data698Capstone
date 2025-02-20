@@ -162,3 +162,18 @@ for year in range(2024, 1996, -1):  # Looping from 2024 down to 1997
         df.to_csv(f"wnba_game_logs_{year}.csv", index=False)
     
     time.sleep(random.randint(60, 68))
+
+# Find all CSV files that start with "wnba_game_logs"
+csv_files = glob.glob("wnba_game_logs*.csv")
+
+# Read and combine them into a single DataFrame
+df = pd.concat([pd.read_csv(f) for f in csv_files], ignore_index=True)
+
+df = df[df["Rk"] != "Rk"]
+
+df['Home_Away'] = df["Unnamed: 4"].apply(lambda x: "Away" if x == '@' else 'Home')
+df[['W_L', 'game_differential']] = df['Unnamed: 6'].str.extract(r'([WL])\s*\(([-+]?\d+)\)')
+
+df = df.drop(['Unnamed: 4','Unnamed: 6'], axis = 1)
+
+
