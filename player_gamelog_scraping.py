@@ -176,4 +176,4 @@ df[['W_L', 'game_differential']] = df['Unnamed: 6'].str.extract(r'([WL])\s*\(([-
 
 df = df.drop(['Unnamed: 4','Unnamed: 6'], axis = 1)
 
-
+df.to_csv('wnba_player_gamelogs.csv')
