@@ -65,3 +65,15 @@ for year in df_team_years['Year'].unique():
     # Wait for 30 to 35 seconds before moving to the next year's data
     print(f"Finished scraping for year {year}, waiting for the next batch...")
     time.sleep(random.randint(30, 35))
+
+# Define the path pattern for your CSV files (adjust the path if needed)
+csv_files = glob.glob("roster_*.csv")
+
+# Read all the CSV files and store them in a list of DataFrames
+dataframes = [pd.read_csv(file) for file in csv_files]
+
+# Concatenate all the DataFrames into a single DataFrame
+merged_df = pd.concat(dataframes, ignore_index=True)
+
+# Save the merged DataFrame to a new CSV file
+merged_df.to_csv('merged_rosters.csv', index=False)
