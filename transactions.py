@@ -10,7 +10,7 @@ df_team_years = pd.read_csv('df_team_years.csv')
 df_team_years = df_team_years.drop('Unnamed: 0', axis =1)
 df_team_years = df_team_years[df_team_years['Year'] != 2025]
 
-# Function to scrape transaction data for a given team URL
+# Fu# Function to scrape transaction data for a given team URL
 def scrape_transactions(year, team_abbreviation, transaction_url):
     response = requests.get(transaction_url)
     soup = BeautifulSoup(response.content, 'html.parser')
@@ -19,6 +19,7 @@ def scrape_transactions(year, team_abbreviation, transaction_url):
     ul_tag = soup.find('ul', class_='page_index')
 
     transactions = []
+    max_links = 0  # Track max number of links in any row
 
     if ul_tag:
         for li in ul_tag.find_all('li'):
@@ -26,23 +27,63 @@ def scrape_transactions(year, team_abbreviation, transaction_url):
             span_tag = li.find('span')
             date = span_tag.get_text(strip=True) if span_tag else None
 
-            # Extract action and player link
+            # Extract action and player links
             p_tag = li.find('p')
             if p_tag:
-                action = p_tag.contents[0].strip() if p_tag.contents else None
-                a_tag = p_tag.find('a')
-                player_link = f"https://www.basketball-reference.com{a_tag['href']}" if a_tag else None
-                player_id = player_link.split("/")[-1].replace(".html", "") if player_link else None
+                # Extract action text while keeping spacing intact
+                action_parts = []
+                for s in p_tag.contents:
+                    if isinstance(s, str):
+                        action_parts.append(s.strip())
+                    elif s.name == 'a':
+                        action_parts.append(s.get_text(strip=True))  # Only add the text of the <a> tag
+                action = " ".join(action_parts)
+                action = re.sub(r'\s+\.', '.', action)  # Remove spaces before periods
+
+                # Extract all links and IDs, determine type
+                links = [f"https://www.basketball-reference.com{a['href']}" for a in p_tag.find_all('a')]
+                ids = []
+                types = []
+
+                for link in links:
+                    if "players" in link:
+                        types.append("player")
+                        player_id = link.split("/")[-1].replace(".html", "")
+                        ids.append(player_id)
+                    elif "teams" in link:
+                        types.append("team")
+                        team_id = link.split("/")[-2]  # ID is between "/" and the year
+                        ids.append(team_id)
+                    else:
+                        types.append(None)
+                        ids.append(None)
+
+                # Update max number of links found
+                max_links = max(max_links, len(links))
 
                 # Append transaction data
                 transactions.append({
                     'Year': year,
                     'Date': date,
                     'Action': action,
-                    'Player Link': player_link,
-                    'Player ID': player_id,
+                    'Links': links,
+                    'IDs': ids,
+                    'Types': types,
                     'Team Abbreviation': team_abbreviation
                 })
+
+    # Expand transactions to ensure consistent columns
+    for transaction in transactions:
+        num_links = len(transaction['Links'])
+        for i in range(max_links):
+            transaction[f'Link_{i+1}'] = transaction['Links'][i] if i < num_links else None
+            transaction[f'ID_{i+1}'] = transaction['IDs'][i] if i < num_links else None
+            transaction[f'Type_{i+1}'] = transaction['Types'][i] if i < num_links else None
+        
+        # Remove original lists
+        del transaction['Links']
+        del transaction['IDs']
+        del transaction['Types']
 
     return transactions
 
