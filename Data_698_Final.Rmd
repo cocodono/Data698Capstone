@@ -1,0 +1,296 @@
+---
+title: "Data_698_final"
+author: "Coco Donovan"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Packages
+
+```{r}
+library(dplyr)
+library(readr)
+library(caret)
+library(nnet)
+library(conflicted)
+library(tidyverse)
+library(pROC)
+library(neuralnet)
+# Resolve conflicts
+conflicted::conflict_prefer("filter", "dplyr")
+conflicted::conflict_prefer("lag", "dplyr")
+conflicted::conflict_prefer("step", "recipes")
+conflicted::conflict_prefer("fixed", "stringr")
+conflicted::conflict_prefer("lift", "caret")
+
+set.seed(42)  # Ensure reproducibility
+```
+
+### loading data
+
+```{r}
+df_raw = read_csv('../assembly/final_df/final_raw.csv')
+```
+
+### Next Game results:
+
+```{r}
+df_raw = df_raw %>%
+  filter(!is.na(`Usg%_rolling`))
+
+df <- df_raw %>%
+  arrange(PlayerID, Date) %>%  # Ensure the data is ordered by player and game date
+  group_by(PlayerID) %>%  # Group by player to ensure we do this for each player
+  mutate(
+    W_L_next = lead(W_L), 
+    Opp_next = lead(Opp),
+    Tm_next = lead(Tm),
+    Year_next = lead(Year),
+    Age_next = lead(Age),
+    next_game_id = lead(GameID), 
+    next_game_date = lead(Date)
+  ) %>%
+  ungroup()
+
+colnames(df_raw)
+
+df_opp <- df_raw %>%
+  select(Tm, GameID, W_L_rolling_player, ends_with('_Tm_rolling')) %>%
+  distinct() %>%
+  rename(Opp = Tm, W_L_Opp_rolling_actual = W_L_rolling_player) %>%
+  rename_with(~ sub("_Tm_rolling$", "_Opp_rolling_actual", .), ends_with("_Tm_rolling"))
+
+df_tm = df_raw %>%
+  select(Tm, GameID, ends_with('_Tm_rolling')) %>%
+  distinct() %>%
+  rename_with(~ sub("_Tm_rolling$", "_Tm_rolling_actual", .), ends_with("_Tm_rolling"))
+
+all_stats_1 <- df %>%
+  left_join(df_opp, by = c("Opp", "GameID"))
+
+all_stats_2 <- all_stats_1 %>%
+  left_join(df_tm, by = c("Tm", "GameID"))
+
+all_stats_3 <- all_stats_2 %>%
+  filter(!is.na(next_game_id)) %>%
+  select(-ends_with("_Tm_rolling")) %>%
+  select(-c(Date, Tm, GameID, Rk, Age)) %>%
+  rename_with(~ ifelse(grepl("_rolling$", .) & !grepl("_Opp_rolling$", .), 
+                       sub("_rolling$", "_player_rolling", .), 
+                       .))
+
+df = all_stats_3
+
+df <- df %>% mutate(across(everything(), ~ifelse(is.na(.) | is.infinite(.), 0, .)))
+```
+
+
+
+```{r}
+df_2024 = df %>% filter(Year_next == 2024)
+
+colnames(df_2024)
+
+# Standardize the data
+scaled_data <- df_2024 %>%
+  mutate(across(where(is.numeric), ~ as.vector(scale(.))))
+```
+
+### Team / Player Defensive + Opp Offensive
+
+```{r}
+# Select defensive and opponent offensive features
+defensive_vars <- scaled_data %>%
+  select(c("BLK_Tm_rolling_player","BLK_player_rolling","DRB_Tm_rolling_player","DRB_player_rolling","PF_Tm_rolling_player","PF_player_rolling","STL_Tm_rolling_player","STL_player_rolling","BLK%_player_rolling","STL%_player_rolling","3P%_Opp_rolling_actual","3PA_Opp_rolling_actual","3P_Opp_rolling_actual","AST_Opp_rolling_actual","FG%_Opp_rolling_actual","FGA_Opp_rolling_actual","FG_Opp_rolling_actual","FT%_Opp_rolling_actual","FTA_Opp_rolling_actual","FT_Opp_rolling_actual","ORB_Opp_rolling_actual","PTS_Opp_rolling_actual","TOV_Opp_rolling_actual","3PA_Opp_rolling_player","3P_Opp_rolling_player","AST_Opp_rolling_player","FGA_Opp_rolling_player","FG_Opp_rolling_player","FTA_Opp_rolling_player","FT_Opp_rolling_player","ORB_Opp_rolling_player","PTS_Opp_rolling_player","BLK%_player_rolling","STL%_player_rolling"))
+
+# Run PCA
+pca_def_off <- prcomp(defensive_vars, center = TRUE, scale. = TRUE)
+
+# View PCA summary
+summary(pca_def_off)
+
+# Plot PCA
+plot(pca_def_off, type = "l")  # Scree plot
+biplot(pca_def_off, scale = 0)
+```
+
+### Team / Player Offensive + Opp Defensive
+
+```{r}
+# Select offensive and opponent defensive features
+offensive_vars <- scaled_data %>%
+  select(c("3P%_player_rolling","3PA_Tm_rolling_player","3PA_player_rolling","3P_Tm_rolling_player","3P_player_rolling","AST_Tm_rolling_player" ,"AST_player_rolling","FG%_player_rolling","FGA_Tm_rolling_player","FGA_player_rolling","FG_Tm_rolling_player","FG_player_rolling"     ,"FT%_Opp_rolling","FT%_player_rolling","FTA_Tm_rolling_player","FTA_player_rolling","FT_Tm_rolling_player","FT_player_rolling","ORB_Tm_rolling_player","ORB_player_rolling","PTS_Tm_rolling_player","TOV_Tm_rolling_player","TOV_player_rolling","A_TO_player_rolling","AST%_player_rolling"        ,"eFG%_player_rolling","TOV%_player_rolling","TS%_player_rolling","BLK_Opp_rolling_actual","DRB_Opp_rolling_actual","PF_Opp_rolling_actual","STL_Opp_rolling_actual"))
+
+# Run PCA
+pca_off_def <- prcomp(offensive_vars, center = TRUE, scale. = TRUE)
+
+# View PCA summary
+summary(pca_off_def)
+
+# Plot PCA
+plot(pca_off_def, type = "l")  # Scree plot
+biplot(pca_off_def, scale = 0)
+```
+
+```{r}
+# Extract PCA scores and merge into df_2024
+df_2024_pca <- df_2024 %>%
+  bind_cols(as.data.frame(pca_off_def$x[, 1:11])) %>%
+  bind_cols(as.data.frame(pca_def_off$x[, 1:11]))
+
+# Rename PCA columns
+colnames(df_2024_pca)[(ncol(df_2024) + 1):(ncol(df_2024) + 11)] <- paste0("PCA_off_def_", 1:11)
+colnames(df_2024_pca)[(ncol(df_2024) + 12):(ncol(df_2024) + 22)] <- paste0("PCA_def_off_", 1:11)
+
+# Select only relevant columns
+df_nn <- df_2024_pca %>%
+  select(W_L_next, W_L_Opp_rolling_actual, W_L_player_rolling, starts_with("PCA_off_def"), starts_with("PCA_def_off"))
+
+# Convert target variable to factor
+df_nn$W_L_next <- as.factor(df_nn$W_L_next)
+
+# Normalize input features (excluding target variable)
+df_nn_scaled <- df_nn %>%
+  mutate(across(-W_L_next, ~ (.-mean(.))/sd(.)))
+
+# Split Data into Training and Testing Sets
+set.seed(123)
+train_indices <- sample(1:nrow(df_nn_scaled), 0.8 * nrow(df_nn_scaled))
+train_data <- df_nn_scaled[train_indices, ]
+test_data <- df_nn_scaled[-train_indices, ]
+
+# Convert Data to Matrices
+x_train <- as.matrix(train_data %>% select(-W_L_next))
+y_train <- as.numeric(as.character(train_data$W_L_next))
+
+x_test <- as.matrix(test_data %>% select(-W_L_next))
+y_test <- as.numeric(as.character(test_data$W_L_next))
+
+# Prepare the data
+train_data <- data.frame(W_L_next = y_train, x_train)
+
+# Define the formula for the neural network
+features <- names(train_data)[-1]
+formula <- as.formula(paste("W_L_next ~", paste(features, collapse = " + ")))
+
+# Train Neural Network
+model_nn <- neuralnet(
+  formula,
+  data = train_data,
+  hidden = c(16, 8),  # Two hidden layers: 16 and 8 nodes
+  linear.output = FALSE,
+  stepmax = 1e6
+)
+
+# Predictions
+predictions <- neuralnet::compute(model_nn, x_test)$net.result
+predictions_class <- ifelse(predictions > 0.5, 1, 0)
+
+# Evaluate accuracy
+accuracy <- mean(predictions_class == y_test)
+print(paste("Accuracy:", round(accuracy * 100, 2), "%"))
+
+
+confusionMatrix(factor(predictions_class), factor(y_test))
+
+predictions_train <- neuralnet::compute(model_nn, x_train)$net.result
+predictions_train_class <- ifelse(predictions_train > 0.5, 1, 0)
+accuracy_train <- mean(predictions_train_class == y_train)
+print(paste("Training Accuracy:", round(accuracy_train * 100, 2), "%"))
+
+
+roc_curve <- roc(y_test, predictions)
+plot(roc_curve, main = "ROC Curve")
+auc(roc_curve)  # Area Under the Curve
+```
+
+
+
+```{r}
+
+# Extract PCA scores and merge into df_2024
+df_2024_pca <- df_2024 %>%
+  bind_cols(as.data.frame(pca_off_def$x[, 1:11])) %>%
+  bind_cols(as.data.frame(pca_def_off$x[, 1:11]))
+
+# Rename PCA columns
+colnames(df_2024_pca)[(ncol(df_2024) + 1):(ncol(df_2024) + 11)] <- paste0("PCA_off_def_", 1:11)
+colnames(df_2024_pca)[(ncol(df_2024) + 12):(ncol(df_2024) + 22)] <- paste0("PCA_def_off_", 1:11)
+
+# Select only relevant columns
+df_nn <- df_2024_pca %>%
+  select(next_game_id, Tm_next, W_L_next, `Usg%_player_rolling`, 
+         W_L_Opp_rolling_actual, W_L_player_rolling, 
+         starts_with("PCA_off_def"), starts_with("PCA_def_off"))
+
+# Convert target variable to factor
+df_nn$W_L_next <- as.factor(df_nn$W_L_next)
+
+# Normalize input features (excluding target variable)
+df_nn_scaled <- df_nn %>%
+  mutate(across(-c(W_L_next, next_game_id, Tm_next, `Usg%_player_rolling`), ~ (.-mean(.))/sd(.)))
+
+# Ensure next_game_id values appear only in either train or test
+set.seed(123)
+unique_games <- unique(df_nn_scaled$next_game_id)
+
+# Split games into train (80%) and test (20%)
+train_games <- sample(unique_games, size = 0.8 * length(unique_games))
+test_games <- setdiff(unique_games, train_games)
+
+train_data <- df_nn_scaled %>% filter(next_game_id %in% train_games)
+test_data <- df_nn_scaled %>% filter(next_game_id %in% test_games)
+
+cols_to_aggregate <- setdiff(names(train_data), c("next_game_id", "Tm_next", "W_L_next", "Usg%_player_rolling"))
+
+train_agg <- train_data %>%
+  group_by(next_game_id, Tm_next) %>%
+  summarize(
+    across(all_of(cols_to_aggregate), ~ sum(. * (`Usg%_player_rolling` / sum(`Usg%_player_rolling`, na.rm = TRUE)), na.rm = TRUE)),
+    W_L_next = first(W_L_next),
+    .groups = 'drop'
+  )
+
+cols_to_aggregate <- setdiff(names(test_data), c("next_game_id", "Tm_next", "W_L_next", "Usg%_player_rolling"))
+
+test_agg <- test_data %>%
+  group_by(next_game_id, Tm_next) %>%
+  summarize(
+    across(all_of(cols_to_aggregate), ~ sum(. * (`Usg%_player_rolling` / sum(`Usg%_player_rolling`, na.rm = TRUE)), na.rm = TRUE)),
+    W_L_next = first(W_L_next),
+    .groups = 'drop'
+  )
+
+# Convert target variable to numeric
+train_agg$W_L_next <- as.numeric(as.character(train_agg$W_L_next))
+test_agg$W_L_next <- as.numeric(as.character(test_agg$W_L_next))
+
+# Convert Data to Matrices
+x_train <- as.matrix(train_agg %>% select(-c(W_L_next, next_game_id, Tm_next)))
+y_train <- train_agg$W_L_next
+
+x_test <- as.matrix(test_agg %>% select(-c(W_L_next, next_game_id, Tm_next)))
+y_test <- test_agg$W_L_next
+
+# Prepare the data
+train_data_final <- data.frame(W_L_next = y_train, x_train)
+
+# Define the formula for the neural network
+features <- names(train_data_final)[-1]
+formula <- as.formula(paste("W_L_next ~", paste(features, collapse = " + ")))
+
+model_nn <- neuralnet(
+  formula,
+  data = train_data_final,
+  hidden = c(64, 32, 16),
+  linear.output = FALSE,
+  stepmax = 1e6,
+  act.fct = "relu",
+  algorithm = "backprop",
+  dropout = 0.2  # Drop 20% of nodes
+)
+```
