@@ -19,7 +19,11 @@ library(nnet)
 library(conflicted)
 library(tidyverse)
 library(pROC)
+library(knitr)
 library(neuralnet)
+library(ggplot2)
+library(ggcorrplot)
+library(corrplot)
 # Resolve conflicts
 conflicted::conflict_prefer("filter", "dplyr")
 conflicted::conflict_prefer("lag", "dplyr")
@@ -34,6 +38,152 @@ set.seed(42)  # Ensure reproducibility
 
 ```{r}
 df_raw = read_csv('../assembly/final_df/final_raw.csv')
+
+df_raw = df_raw %>% filter(Year == 2024)
+```
+
+### EDA
+
+```{r}
+colnames(df_raw)
+
+df2024 = df_raw
+
+dim(df2024)
+
+# 4512 observations for the 2024 season
+
+df2024 <- df2024 %>%
+  separate(Age, into = c("years", "days"), sep = "-", convert = TRUE) %>%
+  mutate(Age = as.double(years) + as.double(days) / 365.25) %>%
+  select(-years, -days)
+
+# 157 players
+
+df_age = df2024 %>%
+  group_by(PlayerID) %>%
+  summarize(Age = mean(Age)) %>%
+  distinct(PlayerID, Age)
+
+mean(df_age$Age)
+
+median(floor(df_age$Age))
+
+max(df_age$Age)
+# oldest player = 42 years old
+min(df_age$Age)
+# youngest player = 21 years old
+
+ggplot(df_age, aes(x = "", y = Age)) + 
+  geom_boxplot(fill = "skyblue", color = "black") + 
+  labs(title = "Distribution of WNBA Player Age (2024)",x = '', y = "Age") +
+  theme_minimal()
+
+# Distribution of Age
+ggplot(df_age, aes(x = Age)) +
+  geom_histogram(binwidth = 2, fill = "blue", color = "black", alpha = 0.7, boundary = 18) +
+  scale_x_continuous(breaks = seq(18, max(df_age$Age, na.rm = TRUE), by = 2)) +
+  labs(title = "Distribution of WNBA Player Age in the 2024 Season", x = "Age (Years)", y = "Count") +
+  theme_minimal()
+```
+
+
+```{r}
+colnames(df2024)
+
+df_rolling <- df2024 %>%
+  select(ends_with("_rolling"))
+
+colnames(df_rolling)
+
+df_player_filtered = df_rolling %>%
+  select(c("BLK_rolling","DRB_rolling","PF_rolling","STL_rolling","BLK%_rolling","STL%_rolling"))
+
+# Compute the correlation matrix
+cor_matrix <- cor(df_player_filtered, use = "complete.obs")
+
+# Plot the correlation matrix with smaller text size
+ggcorrplot(cor_matrix, 
+           colors = c("blue", "white", "red"), # Customize colors
+           type = "lower",   # Show only the lower triangle
+           lab = TRUE,       # Display correlation values
+           lab_size = 3,     # Adjust the size of the labels
+           tl.cex = 8,       # Adjust size of text labels
+           tl.srt = 45)      # Rotate text labels if needed
+```
+
+
+```{r}
+n_players = df2024 %>%
+  group_by(Tm, GameID) %>%
+  summarize(n_players = n()) %>%
+  distinct(Tm, GameID, n_players) %>%
+  group_by(Tm) %>%
+  summarize(avg_players = mean(n_players))
+
+n_players
+
+min(n_players$avg_players)
+# Phoenix had the lowest number of players used per game at 8.825
+max(n_players$avg_players)
+# Minnesota had the highest number of players used per game at 9.925
+
+ggplot(n_players, aes(x = avg_players)) +
+  geom_histogram(binwidth = 0.2, fill = "blue", color = "black", alpha = 0.7, boundary = 8.8) +
+  scale_x_continuous(breaks = seq(8.8, max(n_players$avg_players, na.rm = TRUE), by = 0.2)) +
+  labs(title = "Distribution of Team's Average Number of Players Played in the 2024 Season", 
+       x = "Average Number of Players Played by Team", 
+       y = "Count") +
+  theme_minimal()
+
+n_games = df2024 %>%
+  group_by(PlayerID) %>%
+  summarize(n_games = n()) %>%
+  distinct(PlayerID, n_games)
+
+ggplot(n_games, aes(x = n_games)) +
+  geom_histogram(binwidth = 2, fill = "blue", color = "black", alpha = 0.7, boundary = 0) +
+  scale_x_continuous(breaks = seq(0, max(n_games$n_games, na.rm = TRUE), by = 2)) +
+  labs(title = "Distribution of Game Played by Player in the 2024 Season", 
+       x = "Average Number of Games Played", 
+       y = "Count") +
+  theme_minimal()
+
+percentage_over_20 <- mean(n_games$n_games >= 20, na.rm = TRUE) * 100
+print(percentage_over_20)
+
+# Define season length
+season_length <- 40
+
+# Create a table with percentage bins
+percentage_table <- tibble(
+  Percentage = seq(10, 100, by = 10),  # Create 10% increments
+  Players_Percent = sapply(seq(10, 100, by = 10), function(x) {
+    mean(n_games$n_games >= (x / 100) * season_length, na.rm = TRUE) * 100
+  })
+)
+
+# Print the formatted table
+percentage_table %>%
+  kable(col.names = c("Season % Played", "Players (%)"),
+        digits = 2,
+        caption = "Percentage of Players Meeting Season Participation Thresholds")
+```
+
+
+
+```{r}
+# Compute the correlation matrix
+cor_matrix <- cor(df_player_filtered, use = "complete.obs")
+
+# Plot the correlation matrix with smaller text size
+ggcorrplot(cor_matrix, 
+           colors = c("blue", "white", "red"), # Customize colors
+           type = "lower",   # Show only the lower triangle
+           lab = TRUE,       # Display correlation values
+           lab_size = 3,     # Adjust the size of the labels
+           tl.cex = 8,       # Adjust size of text labels
+           tl.srt = 45)      # Rotate text labels if needed
 ```
 
 ### Next Game results:
@@ -42,6 +192,10 @@ df_raw = read_csv('../assembly/final_df/final_raw.csv')
 df_raw = df_raw %>%
   filter(!is.na(`Usg%_rolling`))
 
+dim(df_raw)
+```
+
+```{r}
 df <- df_raw %>%
   arrange(PlayerID, Date) %>%  # Ensure the data is ordered by player and game date
   group_by(PlayerID) %>%  # Group by player to ensure we do this for each player
@@ -56,14 +210,23 @@ df <- df_raw %>%
   ) %>%
   ungroup()
 
+dim(df)
+```
+
+```{r}
 colnames(df_raw)
 
 df_opp <- df_raw %>%
-  select(Tm, GameID, W_L_rolling_player, ends_with('_Tm_rolling')) %>%
+  select(Tm, GameID, W_L_rolling, ends_with('_Tm_rolling')) %>%
   distinct() %>%
-  rename(Opp = Tm, W_L_Opp_rolling_actual = W_L_rolling_player) %>%
+  rename(Opp = Tm, W_L_Opp_rolling_actual = W_L_rolling) %>%
   rename_with(~ sub("_Tm_rolling$", "_Opp_rolling_actual", .), ends_with("_Tm_rolling"))
 
+dim(df_opp)
+```
+
+
+```{r}
 df_tm = df_raw %>%
   select(Tm, GameID, ends_with('_Tm_rolling')) %>%
   distinct() %>%
@@ -75,6 +238,8 @@ all_stats_1 <- df %>%
 all_stats_2 <- all_stats_1 %>%
   left_join(df_tm, by = c("Tm", "GameID"))
 
+dim(all_stats_2)
+
 all_stats_3 <- all_stats_2 %>%
   filter(!is.na(next_game_id)) %>%
   select(-ends_with("_Tm_rolling")) %>%
@@ -85,19 +250,23 @@ all_stats_3 <- all_stats_2 %>%
 
 df = all_stats_3
 
+dim(all_stats_3)
+
 df <- df %>% mutate(across(everything(), ~ifelse(is.na(.) | is.infinite(.), 0, .)))
 ```
 
 
 
 ```{r}
-df_2024 = df %>% filter(Year_next == 2024)
+df_2024 = df %>% filter(Year_next == 2024) %>% distinct()
 
 colnames(df_2024)
 
 # Standardize the data
 scaled_data <- df_2024 %>%
   mutate(across(where(is.numeric), ~ as.vector(scale(.))))
+
+dim(scaled_data)
 ```
 
 ### Team / Player Defensive + Opp Offensive
@@ -146,9 +315,17 @@ df_2024_pca <- df_2024 %>%
 colnames(df_2024_pca)[(ncol(df_2024) + 1):(ncol(df_2024) + 11)] <- paste0("PCA_off_def_", 1:11)
 colnames(df_2024_pca)[(ncol(df_2024) + 12):(ncol(df_2024) + 22)] <- paste0("PCA_def_off_", 1:11)
 
+hist(df_2024_pca$`Usg%_player_rolling`, 
+     breaks = 30, 
+     main = "Histogram of Usg%_player_rolling", 
+     xlab = "Usg%_player_rolling", 
+     col = "#3498DB")
+
 # Select only relevant columns
 df_nn <- df_2024_pca %>%
-  select(W_L_next, W_L_Opp_rolling_actual, W_L_player_rolling, starts_with("PCA_off_def"), starts_with("PCA_def_off"))
+  select(W_L_next, 
+         `Usg%_player_rolling`, 
+         starts_with("PCA_off_def"), starts_with("PCA_def_off"))
 
 # Convert target variable to factor
 df_nn$W_L_next <- as.factor(df_nn$W_L_next)
@@ -176,42 +353,102 @@ train_data <- data.frame(W_L_next = y_train, x_train)
 # Define the formula for the neural network
 features <- names(train_data)[-1]
 formula <- as.formula(paste("W_L_next ~", paste(features, collapse = " + ")))
-
-# Train Neural Network
-model_nn <- neuralnet(
-  formula,
-  data = train_data,
-  hidden = c(16, 8),  # Two hidden layers: 16 and 8 nodes
-  linear.output = FALSE,
-  stepmax = 1e6
-)
-
-# Predictions
-predictions <- neuralnet::compute(model_nn, x_test)$net.result
-predictions_class <- ifelse(predictions > 0.5, 1, 0)
-
-# Evaluate accuracy
-accuracy <- mean(predictions_class == y_test)
-print(paste("Accuracy:", round(accuracy * 100, 2), "%"))
-
-
-confusionMatrix(factor(predictions_class), factor(y_test))
-
-predictions_train <- neuralnet::compute(model_nn, x_train)$net.result
-predictions_train_class <- ifelse(predictions_train > 0.5, 1, 0)
-accuracy_train <- mean(predictions_train_class == y_train)
-print(paste("Training Accuracy:", round(accuracy_train * 100, 2), "%"))
-
-
-roc_curve <- roc(y_test, predictions)
-plot(roc_curve, main = "ROC Curve")
-auc(roc_curve)  # Area Under the Curve
 ```
 
 
 
 ```{r}
+library(conflicted)
+conflicts_prefer(neuralnet::compute)
 
+library(neuralnet)
+library(caret)
+library(pROC)
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Define hidden layer architectures
+hidden_layers_list <- list(
+  c(8),
+  c(16, 8),
+  c(32, 16, 8),
+  c(64, 32, 16),
+  c(4, 2)
+)
+
+results <- list()
+
+for (hidden_layers in hidden_layers_list) {
+  arch_name <- paste(hidden_layers, collapse = "-")
+  cat("\nTraining with hidden layers:", arch_name, "\n")
+  
+  # Train the model
+  model_nn <- neuralnet(
+    formula,
+    data = train_data,
+    hidden = hidden_layers,
+    linear.output = FALSE,
+    stepmax = 1e6
+  )
+  
+  # Compute predictions
+  predictions <- compute(model_nn, x_test)$net.result
+  predictions_class <- ifelse(predictions > 0.5, 1, 0)
+  
+  # Create detailed confusion matrix
+  cm <- confusionMatrix(
+    factor(predictions_class, levels = c(0, 1)),
+    factor(y_test, levels = c(0, 1)),
+    positive = "1"
+  )
+  
+  # Output summary stats
+  cat("Accuracy:", round(cm$overall["Accuracy"] * 100, 2), "%\n")
+  cat("Kappa:", round(cm$overall["Kappa"], 3), "\n")
+  
+  # Store everything
+  results[[arch_name]] <- list(
+    confusion_matrix = cm$table,
+    caret_summary = cm,
+    model = model_nn,
+    raw_predictions = predictions
+  )
+}
+
+# Print summary for each model
+for (name in names(results)) {
+  cat("\n=====================================\n")
+  cat("Model:", name, "\n")
+  print(results[[name]]$caret_summary)
+}
+
+# --- Plot ROC Curve for model "32-16-8" ---
+target_model <- "32-16-8"
+model_nn <- results[[target_model]]$model
+predictions <- compute(model_nn, x_test)$net.result
+
+# Create ROC and plot it
+roc_obj <- roc(response = y_test, predictor = as.vector(predictions), levels = c(0, 1), direction = "<")
+plot(roc_obj, col = "#2C3E50", lwd = 2, main = paste("ROC Curve - Model", target_model))
+auc_val <- auc(roc_obj)
+
+# Display AUC
+cat("AUC for", target_model, "model:", round(auc_val, 4), "\n")
+
+# Assuming 'roc_obj' is your ROC object and 'target_model' is the model identifier
+auc_value <- auc(roc_obj)
+
+# Plot the ROC curve
+plot(roc_obj, col = "#2C3E50", lwd = 2, main = paste("ROC Curve - Model", target_model))
+
+# Add the AUC value to the plot after plotting
+text(x = 0.2, y = 0.3, labels = paste("AUC =", round(auc_value, 3)), col = "blue", cex = 1.2)
+```
+
+
+
+```{r}
 # Extract PCA scores and merge into df_2024
 df_2024_pca <- df_2024 %>%
   bind_cols(as.data.frame(pca_off_def$x[, 1:11])) %>%
@@ -220,77 +457,203 @@ df_2024_pca <- df_2024 %>%
 # Rename PCA columns
 colnames(df_2024_pca)[(ncol(df_2024) + 1):(ncol(df_2024) + 11)] <- paste0("PCA_off_def_", 1:11)
 colnames(df_2024_pca)[(ncol(df_2024) + 12):(ncol(df_2024) + 22)] <- paste0("PCA_def_off_", 1:11)
+```
 
-# Select only relevant columns
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(neuralnet)
+library(caret)
+library(pROC)
+
+hist(df_2024_pca$`Usg%_player_rolling`, 
+     breaks = 30, 
+     main = "Histogram of Usg%_player_rolling", 
+     xlab = "Usg%_player_rolling", 
+     col = "#3498DB")
+
+usg_mean <- mean(df_2024$`Usg%_player_rolling`, na.rm = TRUE)
+usg_sd <- sd(df_2024$`Usg%_player_rolling`, na.rm = TRUE)
+
+df_2024 <- df_2024 %>%
+  mutate(Usg_category = case_when(
+    `Usg%_player_rolling` < usg_mean - 1 * usg_sd ~ "Low",
+    `Usg%_player_rolling` < usg_mean - 0.5 * usg_sd ~ "Medium-Low",
+    `Usg%_player_rolling` <= usg_mean + 0.5 * usg_sd ~ "Medium",
+    `Usg%_player_rolling` <= usg_mean + 1 * usg_sd ~ "Medium-High",
+    TRUE ~ "High"
+  ))
+
+df_2024_pca <- df_2024 %>%
+  bind_cols(as.data.frame(pca_off_def$x[, 1:11])) %>%
+  bind_cols(as.data.frame(pca_def_off$x[, 1:11]))
+
+colnames(df_2024_pca)[(ncol(df_2024) + 1):(ncol(df_2024) + 11)] <- paste0("PCA_off_def_", 1:11)
+colnames(df_2024_pca)[(ncol(df_2024) + 12):(ncol(df_2024) + 22)] <- paste0("PCA_def_off_", 1:11)
+
 df_nn <- df_2024_pca %>%
-  select(next_game_id, Tm_next, W_L_next, `Usg%_player_rolling`, 
-         W_L_Opp_rolling_actual, W_L_player_rolling, 
+  select(W_L_next, Usg_category, `Usg%_player_rolling`,
          starts_with("PCA_off_def"), starts_with("PCA_def_off"))
 
-# Convert target variable to factor
 df_nn$W_L_next <- as.factor(df_nn$W_L_next)
 
-# Normalize input features (excluding target variable)
 df_nn_scaled <- df_nn %>%
-  mutate(across(-c(W_L_next, next_game_id, Tm_next, `Usg%_player_rolling`), ~ (.-mean(.))/sd(.)))
+  mutate(across(starts_with("PCA_"), ~ (.-mean(.))/sd(.)))
 
-# Ensure next_game_id values appear only in either train or test
 set.seed(123)
-unique_games <- unique(df_nn_scaled$next_game_id)
+train_indices <- sample(1:nrow(df_nn_scaled), 0.8 * nrow(df_nn_scaled))
+train_data <- df_nn_scaled[train_indices, ]
+test_data <- df_nn_scaled[-train_indices, ]
 
-# Split games into train (80%) and test (20%)
-train_games <- sample(unique_games, size = 0.8 * length(unique_games))
-test_games <- setdiff(unique_games, train_games)
+x_train <- as.matrix(train_data %>% select(starts_with("PCA_")))
+y_train <- as.numeric(as.character(train_data$W_L_next))
 
-train_data <- df_nn_scaled %>% filter(next_game_id %in% train_games)
-test_data <- df_nn_scaled %>% filter(next_game_id %in% test_games)
+x_test <- as.matrix(test_data %>% select(starts_with("PCA_")))
+y_test <- as.numeric(as.character(test_data$W_L_next))
 
-cols_to_aggregate <- setdiff(names(train_data), c("next_game_id", "Tm_next", "W_L_next", "Usg%_player_rolling"))
+train_data_nn <- data.frame(W_L_next = y_train, x_train)
 
-train_agg <- train_data %>%
-  group_by(next_game_id, Tm_next) %>%
-  summarize(
-    across(all_of(cols_to_aggregate), ~ sum(. * (`Usg%_player_rolling` / sum(`Usg%_player_rolling`, na.rm = TRUE)), na.rm = TRUE)),
-    W_L_next = first(W_L_next),
-    .groups = 'drop'
-  )
-
-cols_to_aggregate <- setdiff(names(test_data), c("next_game_id", "Tm_next", "W_L_next", "Usg%_player_rolling"))
-
-test_agg <- test_data %>%
-  group_by(next_game_id, Tm_next) %>%
-  summarize(
-    across(all_of(cols_to_aggregate), ~ sum(. * (`Usg%_player_rolling` / sum(`Usg%_player_rolling`, na.rm = TRUE)), na.rm = TRUE)),
-    W_L_next = first(W_L_next),
-    .groups = 'drop'
-  )
-
-# Convert target variable to numeric
-train_agg$W_L_next <- as.numeric(as.character(train_agg$W_L_next))
-test_agg$W_L_next <- as.numeric(as.character(test_agg$W_L_next))
-
-# Convert Data to Matrices
-x_train <- as.matrix(train_agg %>% select(-c(W_L_next, next_game_id, Tm_next)))
-y_train <- train_agg$W_L_next
-
-x_test <- as.matrix(test_agg %>% select(-c(W_L_next, next_game_id, Tm_next)))
-y_test <- test_agg$W_L_next
-
-# Prepare the data
-train_data_final <- data.frame(W_L_next = y_train, x_train)
-
-# Define the formula for the neural network
-features <- names(train_data_final)[-1]
+features <- names(train_data_nn)[-1]
 formula <- as.formula(paste("W_L_next ~", paste(features, collapse = " + ")))
-
-model_nn <- neuralnet(
-  formula,
-  data = train_data_final,
-  hidden = c(64, 32, 16),
-  linear.output = FALSE,
-  stepmax = 1e6,
-  act.fct = "relu",
-  algorithm = "backprop",
-  dropout = 0.2  # Drop 20% of nodes
-)
 ```
+
+
+```{r}
+# Train and evaluate multiple networks
+hidden_layers_list <- list(
+  c(8),
+  c(16, 8),
+  c(32, 16, 8),
+  c(64, 32, 16),
+  c(4, 2)
+)
+
+results <- list()
+
+for (hidden_layers in hidden_layers_list) {
+  arch_name <- paste(hidden_layers, collapse = "-")
+  cat("\nTraining with hidden layers:", arch_name, "\n")
+  
+  model_nn <- neuralnet(
+    formula,
+    data = train_data_nn,
+    hidden = hidden_layers,
+    linear.output = FALSE,
+    stepmax = 1e6
+  )
+  
+  predictions <- compute(model_nn, x_test)$net.result
+  predictions_class <- ifelse(predictions > 0.5, 1, 0)
+  
+  cm <- confusionMatrix(
+    factor(predictions_class, levels = c(0, 1)),
+    factor(y_test, levels = c(0, 1)),
+    positive = "1"
+  )
+  
+  cat("Accuracy:", round(cm$overall["Accuracy"] * 100, 2), "%\n")
+  cat("Kappa:", round(cm$overall["Kappa"], 3), "\n")
+  
+  results[[arch_name]] <- list(
+    confusion_matrix = cm$table,
+    caret_summary = cm,
+    model = model_nn,
+    raw_predictions = predictions
+  )
+}
+
+# Print all model results
+for (name in names(results)) {
+  cat("\n=====================================\n")
+  cat("Model:", name, "\n")
+  print(results[[name]]$caret_summary)
+}
+
+# ROC for 16-8
+target_model <- "16-8"
+model_nn <- results[[target_model]]$model
+predictions <- compute(model_nn, x_test)$net.result
+predicted_class <- ifelse(predictions > 0.5, 1, 0)
+
+roc_obj <- roc(response = y_test, predictor = as.vector(predictions), levels = c(0, 1), direction = "<")
+plot(roc_obj, col = "#2C3E50", lwd = 2, main = paste("ROC Curve - Model", target_model))
+auc_val <- auc(roc_obj)
+text(x = 0.2, y = 0.3, labels = paste("AUC =", round(auc_val, 3)), col = "blue", cex = 1.2)
+```
+
+
+```{r}
+# Step 4: Accuracy by Usg_category (for interpretation only)
+test_usg_category <- df_nn$Usg_category[-train_indices]
+accuracy_by_usg <- data.frame(
+  Usg_category = test_usg_category,
+  True = y_test,
+  Predicted = predicted_class
+) %>%
+  group_by(Usg_category) %>%
+  summarise(
+    Accuracy = mean(True == Predicted),
+    Count = n()
+  )
+
+cat("\n--- Accuracy by Usg_category for 32-16-8 model ---\n")
+print(accuracy_by_usg)
+```
+
+
+```{r}
+# Create contingency table with success/failure per category
+contingency_df <- accuracy_by_usg %>%
+  mutate(
+    Correct = round(Accuracy * Count),
+    Incorrect = Count - Correct
+  ) %>%
+  select(Usg_category, Correct, Incorrect)
+
+# Create matrix for chi-square test
+chi_matrix <- as.matrix(contingency_df[, c("Correct", "Incorrect")])
+rownames(chi_matrix) <- contingency_df$Usg_category
+
+chi_result <- chisq.test(chi_matrix)
+print(chi_result)
+```
+
+
+
+```{r}
+library(purrr)
+library(combinat)
+
+# Add Correct predictions column
+accuracy_df <- accuracy_by_usg %>%
+  mutate(Correct = round(Accuracy * Count))
+
+# Get all combinations of pairwise comparisons
+category_pairs <- combinat::combn(accuracy_df$Usg_category, 2, simplify = FALSE)
+
+# Run pairwise proportion tests
+pairwise_prop_tests <- map_dfr(category_pairs, function(pair) {
+  group1 <- accuracy_df %>% filter(Usg_category == pair[1])
+  group2 <- accuracy_df %>% filter(Usg_category == pair[2])
+  
+  test_result <- prop.test(
+    x = c(group1$Correct, group2$Correct),
+    n = c(group1$Count, group2$Count)
+  )
+  
+  tibble(
+    Group1 = pair[1],
+    Group2 = pair[2],
+    p_value = test_result$p.value,
+    Estimate1 = group1$Accuracy,
+    Estimate2 = group2$Accuracy
+  )
+})
+
+# Print result with optional p-value highlighting
+pairwise_prop_tests %>%
+  mutate(Significant = ifelse(p_value < 0.05, "Yes", "No")) %>%
+  arrange(p_value)
+```
+
